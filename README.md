@@ -80,11 +80,100 @@ Example:
 amrish/android-workflows
 ```
 
+# Android Signing Configuration
+
+For CI to produce a **signed release APK**, your Android project must support loading signing credentials from `keystore.properties`.
+
+This allows CI to dynamically inject credentials without committing secrets to the repository.
+
 ---
 
-# Signing Configuration (Optional)
+# Step 1 — Create `keystore.properties`
 
-If you want CI to generate **signed release APKs**, you must add signing secrets.
+In the **root of your Android project**, create:
+
+```
+keystore.properties
+```
+
+Example content:
+
+```
+storePassword=your_keystore_password
+keyPassword=your_key_password
+keyAlias=release
+storeFile=release-keystore.jks
+```
+
+⚠️ This file **must not be committed to git**.
+
+Add to `.gitignore`:
+
+```
+keystore.properties
+release-keystore.jks
+```
+
+---
+
+# Step 2 — Update `build.gradle.kts`
+
+Add the following code to your **app module's `build.gradle.kts`**.
+
+### Load signing properties
+
+```kotlin
+import java.util.Properties
+import java.io.FileInputStream
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+```
+
+---
+
+### Add signing configuration
+
+Inside the `android {}` block:
+
+```kotlin
+signingConfigs {
+    create("release") {
+        storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+        storePassword = keystoreProperties["storePassword"] as String
+        keyAlias = keystoreProperties["keyAlias"] as String
+        keyPassword = keystoreProperties["keyPassword"] as String
+    }
+}
+```
+
+---
+
+### Attach signing to the release build
+
+Inside `buildTypes`:
+
+```kotlin
+buildTypes {
+    release {
+        isMinifyEnabled = false
+        signingConfig = signingConfigs.getByName("release")
+
+        proguardFiles(
+            getDefaultProguardFile("proguard-android-optimize.txt"),
+            "proguard-rules.pro"
+        )
+    }
+}
+```
+
+---
+
+# Step 3 — Add GitHub Secrets
 
 Go to:
 
@@ -92,7 +181,7 @@ Go to:
 Repository → Settings → Secrets and variables → Actions
 ```
 
-Add the following secrets:
+Add the following secrets.
 
 | Secret            | Description                  |
 | ----------------- | ---------------------------- |
@@ -103,7 +192,7 @@ Add the following secrets:
 
 ---
 
-# Converting a Keystore to Base64
+# Converting Keystore to Base64
 
 ### Linux / macOS
 
@@ -118,22 +207,22 @@ $bytes = [System.IO.File]::ReadAllBytes("release-keystore.jks")
 [System.Convert]::ToBase64String($bytes)
 ```
 
-Copy the output and store it as the `KEYSTORE_BASE64` secret.
+Copy the generated output and store it in the `KEYSTORE_BASE64` secret.
 
 ---
 
 # What the Workflow Does
 
-Each CI run performs the following:
+Each CI run performs the following steps:
 
 1. Checkout repository
 2. Install Android SDK
 3. Setup Java 17
-4. Restore keystore (if secrets exist)
-5. Create `keystore.properties`
+4. Restore keystore from secrets
+5. Generate `keystore.properties`
 6. Run Gradle tests
-7. Build debug APK
-8. Build signed release APK
+7. Build Debug APK
+8. Build Signed Release APK
 
 ---
 
